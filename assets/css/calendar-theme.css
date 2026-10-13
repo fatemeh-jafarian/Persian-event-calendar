@@ -10,6 +10,12 @@
   --holiday-soft:#fff0f2;
   --shadow:0 22px 70px rgba(32,45,79,.10)
 }
+@font-face {
+  font-family:"IRANSans";
+  src:local("IRANSansXFaNum"),local("IRANSans"),local("IRANSansWeb");
+  font-style:normal;
+  font-weight:100 900;
+}
 * {
   box-sizing:border-box
 }
@@ -19,7 +25,7 @@ body {
   padding:clamp(12px,3vw,38px);
   color:var(--ink);
   background:radial-gradient(ellipse at 90% -10%,#e5e9ff 0,transparent 42%),var(--canvas);
-  font-family:Vazirmatn,Tahoma,sans-serif
+  font-family:"IRANSans","IRANSansX",Vazirmatn,Tahoma,sans-serif
 }
 .show-calendar {
   max-width:1480px;
@@ -105,6 +111,11 @@ body {
   background:var(--primary-soft);
   border-color:transparent;
   color:var(--primary)
+}
+.topbar .create-event-btn,.save-event-btn {
+  border-color:var(--primary);
+  background:var(--primary);
+  color:#fff
 }
 .calendar-heading {
   display:flex;
@@ -387,8 +398,14 @@ body {
   padding:13px;
   border:1px solid var(--line);
   border-right:4px solid var(--event-color);
-  border-radius:10px
+  border-radius:10px;
+  cursor:pointer;
+  text-align:right;
+  font:inherit
 }
+.agenda-event:hover { background:#fafbff; box-shadow:0 0 0 2px #5668e822; }
+.agenda-event span { display:grid; gap:4px; }
+.agenda-event small { color:var(--muted); font-size:11px; }
 .agenda-event time {
   color:var(--muted);
   font-size:12px
@@ -420,6 +437,9 @@ body {
   gap:0;
   border-left:1px solid var(--line)
 }
+.week-view .weekday-row>.week-time-spacer {
+  border:0
+}
 .week-view .weekday-row b {
   color:var(--ink);
   font-size:13px
@@ -437,6 +457,8 @@ body {
   padding:3px;
   border-left:1px solid var(--line)
 }
+.all-day-row { min-height:48px; background:#fbfcfe; }
+.all-day-row>time { color:var(--ink); font-weight:700; }
 .week-holiday {
   display:block;
   color:var(--holiday);
@@ -548,3 +570,64 @@ body {
 .day.is-friday.is-today .day-number { color: #fff; }
 .agenda-friday { margin-bottom: 12px; padding: 12px; border-radius: 10px; background: #fff7e9; color: #9e681b; font-weight: 700; }
 .week-friday { display: block; color: #9e681b; font-size: 9px; }
+
+.dialog-backdrop {
+  position:fixed;
+  inset:0;
+  z-index:20;
+  display:grid;
+  place-items:center;
+  overflow:auto;
+  padding:20px;
+  background:rgba(21,29,49,.48)
+}
+.dialog-backdrop[hidden] { display:none; }
+.event-form {
+  display:grid;
+  width:min(100%,520px);
+  max-height:calc(100vh - 40px);
+  gap:15px;
+  overflow:auto;
+  padding:24px;
+  border:1px solid var(--line);
+  border-radius:18px;
+  background:#fff;
+  box-shadow:0 24px 80px #121a2e40
+}
+.dialog-heading { display:flex; align-items:center; justify-content:space-between; }
+.dialog-heading h2 { margin:0; font-size:19px; }
+.dialog-close { width:36px; min-height:36px; padding:0; font-size:23px; }
+.form-field { display:grid; gap:6px; color:var(--ink); font-size:12px; font-weight:600; }
+.form-field input:not([type=color]),.form-field textarea {
+  width:100%;
+  min-height:42px;
+  padding:9px 11px;
+  border:1px solid var(--line);
+  border-radius:9px;
+  background:#fff;
+  color:var(--ink);
+  font:inherit;
+  font-weight:400
+}
+.form-field textarea { resize:vertical; }
+.form-field input:focus,.form-field textarea:focus { outline:2px solid #5668e844; border-color:var(--primary); }
+.date-fields,.time-fields { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.time-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.all-day-field { display:flex; align-items:center; gap:8px; color:var(--ink); font-size:12px; }
+.all-day-field input { accent-color:var(--primary); }
+.color-field { grid-template-columns:1fr auto; align-items:center; }
+.color-field input { width:48px; height:36px; padding:2px; border:1px solid var(--line); border-radius:8px; background:white; }
+.dialog-actions { display:flex; align-items:center; gap:8px; margin-top:4px; }
+.dialog-actions>span { flex:1; }
+.dialog-actions button { min-height:39px; padding:7px 14px; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--ink); font:inherit; cursor:pointer; }
+.dialog-actions .save-event-btn { border-color:var(--primary); background:var(--primary); color:white; }
+.dialog-actions .delete-event-btn { border-color:#f1cbd1; color:#b54258; }
+.form-error { margin:0; color:#b54258; font-size:12px; }
+.event-pill[data-event-id] { cursor:pointer; }
+.event-pill[data-event-id]:focus-visible,.agenda-event:focus-visible { outline:2px solid var(--primary); outline-offset:2px; }
+@media(max-width:600px) {
+  .event-form { padding:18px; }
+  .date-fields { gap:7px; }
+  .date-fields .form-field { font-size:11px; }
+  .dialog-actions button { padding-inline:10px; font-size:11px; }
+}
