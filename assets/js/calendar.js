@@ -8,6 +8,9 @@ const jalaliFormatter = new Intl.DateTimeFormat('en-u-ca-persian', {
 const hijriFormatter = new Intl.DateTimeFormat('en-u-ca-islamic', {
   year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC'
 });
+const solarFullFormatter = new Intl.DateTimeFormat('fa-IR-u-ca-persian', { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'UTC' });
+const gregorianFullFormatter = new Intl.DateTimeFormat('fa-IR-u-ca-gregory', { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'UTC' });
+const hijriFullFormatter = new Intl.DateTimeFormat('fa-IR-u-ca-islamic', { weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'UTC' });
 const monthNames = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
 const weekdays = ['شنبه','یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه'];
 const solarHolidays = {
@@ -34,8 +37,10 @@ let currentDate = calendarToday();
 let selectedYear = Number(jalaliParts(currentDate).year);
 let selectedView = 'month';
 let holidaysForYear = new Map();
-const eventStorageKey = 'persian-calendar-events-v1';
+let savedEvents = [];
 let editingEventId = null;
+let reminderTimer = null;
+const notifiedReminders = new Set();
 
 function parts(formatter, date) {
   const result = {};
@@ -76,19 +81,9 @@ function holidayMap(year) {
   holidaysForYear.set(year, holidays);
   return holidays;
 }
-function readSavedEvents() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(eventStorageKey) || '[]');
-    return Array.isArray(saved) ? saved.filter(event => event && typeof event.id === 'string' && typeof event.title === 'string' && typeof event.date === 'string' && /^\d{4,6}-\d{2}-\d{2}$/.test(event.date) && /^#[0-9a-f]{6}$/i.test(event.color)) : [];
-  } catch {
-    return [];
-  }
-}
-function eventsForYear(year) {
+function eventsByDate() {
   const events = new Map();
-  for (const event of readSavedEvents()) {
-    const date = new Date(`${event.date}T12:00:00Z`);
-    if (jalaliParts(date).year !== year) continue;
+  for (const event of savedEvents) {
     if (!events.has(event.date)) events.set(event.date, []);
     events.get(event.date).push(event);
   }
@@ -120,13 +115,14 @@ function renderMonth(year, month, holidays, events, mini=false) {
 }
 function render() {
   const holidays = holidayMap(selectedYear);
-  const events = eventsForYear(selectedYear);
+  const events = eventsByDate();
   const host=document.getElementById('calendar');
   const title=document.getElementById('period-title');
   const subtitle=document.getElementById('period-subtitle');
   document.getElementById('year-input').value=selectedYear;
+  refreshDateEquivalents();
   if (selectedView==='year') {
-    title.textContent=`تقویم سال ${faYear.format(selectedYear)}`;
+    title.textContent=` سال${faYear.format(selectedYear)}`;
     subtitle.textContent='همهٔ ماه‌ها در یک نگاه';
     host.className='year-view';
     host.innerHTML=Array.from({length:12},(_,i)=>renderMonth(selectedYear,i+1,holidays,events,true)).join('');
@@ -145,22 +141,46 @@ function render() {
     title.textContent=labelDate(dayDate); subtitle.textContent=weekdays[iranWeekday(dayDate)];
     const officialHoliday=holidays.get(key);
     const friday=dayDate.getUTCDay()===5;
-    host.innerHTML=`<div class="agenda">${officialHoliday?`<div class="agenda-holiday">تعطیل رسمی · ${escapeHtml(officialHoliday)}</div>`:''}${friday?'<div class="agenda-friday">تعطیلی هفتگی جمعه</div>':''}${(events.get(key)||[]).map(e=>`<div class="agenda-event" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0"><time>${escapeHtml(eventTimeLabel(e))}</time><span><strong>${escapeHtml(e.title)}</strong>${e.description?`<small>${escapeHtml(e.description)}</small>`:''}</span></div>`).join('')||(!officialHoliday&&!friday?'<div class="empty-state">برای این روز رویدادی ثبت نشده است.</div>':'')}</div>`;
+    const dayEvents=events.get(key)||[];
+    host.innerHTML=`<div class="agenda">${officialHoliday?`<div class="agenda-holiday">تعطیل رسمی · ${escapeHtml(officialHoliday)}</div>`:''}<div class="day-timeline"><div class="day-hour-row all-day-row"><time>تمام‌روز</time><div class="day-slot ${friday?'is-friday':''}" data-create-event-date="${key}" data-create-all-day="true" role="button" tabindex="0" aria-label="افزودن رویداد تمام‌روز">${dayEvents.filter(e=>e.allDay).map(e=>`<div class="event-pill" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0">${escapeHtml(e.title)}</div>`).join('')}</div></div>${Array.from({length:24},(_,hour)=>`<div class="day-hour-row"><time>${faNumber.format(hour)}:۰۰</time><div class="day-slot ${friday?'is-friday':''}" data-create-event-date="${key}" data-create-event-hour="${hour}" role="button" tabindex="0" aria-label="افزودن رویداد در ساعت ${faNumber.format(hour)}">${dayEvents.filter(e=>!e.allDay&&Number((e.startTime||'').slice(0,2))===hour).map(e=>`<div class="agenda-event" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0"><time>${escapeHtml(eventTimeLabel(e))}</time><span><strong>${escapeHtml(e.title)}</strong>${e.description?`<small>${escapeHtml(e.description)}</small>`:''}</span></div>`).join('')}</div></div>`).join('')}</div></div>`;
   } else {
     const p=jalaliParts(currentDate); const month=p.year===selectedYear?p.month:1; const start=new Date(Date.UTC(currentDate.getUTCFullYear(),currentDate.getUTCMonth(),currentDate.getUTCDate())); const shift=iranWeekday(start); const weekStart=new Date(start.getTime()-shift*86400000); const days=Array.from({length:7},(_,i)=>new Date(weekStart.getTime()+i*86400000));
-    title.textContent=`هفتهٔ ${monthNames[month-1]} ${faYear.format(selectedYear)}`; subtitle.textContent='نمای هفتگی';
-    host.innerHTML=`<div class="week-view"><div class="weekday-row"><span class="week-time-spacer" aria-hidden="true"></span>${weekdays.map((w,i)=>`<span>${w}<b>${faNumber.format(jalaliParts(days[i]).day)}</b></span>`).join('')}</div><div class="week-row all-day-row"><time>تمام‌روز</time>${days.map(d=>`<div class="week-slot">${(events.get(isoDate(d))||[]).filter(e=>e.allDay).map(e=>`<div class="event-pill" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0">${escapeHtml(e.title)}</div>`).join('')}</div>`).join('')}</div>${Array.from({length:24},(_,h)=>`<div class="week-row"><time>${faNumber.format(h)}:۰۰</time>${days.map(d=>{const iso=isoDate(d);const officialHoliday=holidays.get(iso);const friday=d.getUTCDay()===5;return `<div class="week-slot">${(events.get(iso)||[]).filter(e=>!e.allDay&&Number((e.startTime||'').slice(0,2))===h).map(e=>`<div class="event-pill" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0">${escapeHtml(e.startTime)}–${escapeHtml(e.endTime)} ${escapeHtml(e.title)}</div>`).join('')}${officialHoliday&&h===0?`<small class="week-holiday">${escapeHtml(officialHoliday)}</small>`:''}${friday&&h===0?'<small class="week-friday">تعطیلی جمعه</small>':''}</div>`}).join('')}</div>`).join('')}</div>`;
+    const firstDay=jalaliParts(days[0]); const lastDay=jalaliParts(days[6]);
+    const weekMonthLabel=`${monthNames[firstDay.month-1]} ${faYear.format(firstDay.year)}`;
+    const lastMonthLabel=`${monthNames[lastDay.month-1]} ${faYear.format(lastDay.year)}`;
+    title.textContent=weekMonthLabel===lastMonthLabel?weekMonthLabel:`${weekMonthLabel} الی ${lastMonthLabel}`;
+    subtitle.textContent=firstDay.month===lastDay.month&&firstDay.year===lastDay.year
+      ?`${faNumber.format(firstDay.day)} الی ${faNumber.format(lastDay.day)}`
+      :`${faNumber.format(firstDay.day)} ${monthNames[firstDay.month-1]} الی ${faNumber.format(lastDay.day)} ${monthNames[lastDay.month-1]}`;
+    const todayIso=isoDate(calendarToday());
+    host.innerHTML=`<div class="week-view"><div class="weekday-row"><span class="week-time-spacer" aria-hidden="true"></span>${weekdays.map((w,i)=>{const iso=isoDate(days[i]);const isToday=iso===todayIso;return `<span class="${i===6?'is-friday ':''}${isToday?'is-today':''}">${w}<b class="${isToday?'is-today':''}">${faNumber.format(jalaliParts(days[i]).day)}</b></span>`}).join('')}</div><div class="week-row all-day-row"><time>تمام‌روز</time>${days.map(d=>{const iso=isoDate(d);const isToday=iso===todayIso;return `<div class="week-slot ${d.getUTCDay()===5?'is-friday ':''}${isToday?'is-today':''}" data-create-event-date="${iso}" data-create-all-day="true" role="button" tabindex="0" aria-label="افزودن رویداد تمام‌روز ${escapeHtml(labelDate(d))}">${(events.get(iso)||[]).filter(e=>e.allDay).map(e=>`<div class="event-pill" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0">${escapeHtml(e.title)}</div>`).join('')}</div>`}).join('')}</div>${Array.from({length:24},(_,h)=>`<div class="week-row"><time>${faNumber.format(h)}:۰۰</time>${days.map(d=>{const iso=isoDate(d);const officialHoliday=holidays.get(iso);const friday=d.getUTCDay()===5;const isToday=iso===todayIso;return `<div class="week-slot ${friday?'is-friday ':''}${isToday?'is-today':''}" data-create-event-date="${iso}" data-create-event-hour="${h}" role="button" tabindex="0" aria-label="افزودن رویداد ${escapeHtml(labelDate(d))} ساعت ${faNumber.format(h)}">${(events.get(iso)||[]).filter(e=>!e.allDay&&Number((e.startTime||'').slice(0,2))===h).map(e=>`<div class="event-pill" style="--event-color:${escapeHtml(e.color)}" data-event-id="${escapeHtml(e.id)}" role="button" tabindex="0">${escapeHtml(e.startTime)}–${escapeHtml(e.endTime)} ${escapeHtml(e.title)}</div>`).join('')}${officialHoliday&&h===0?`<small class="week-holiday">${escapeHtml(officialHoliday)}</small>`:''}</div>`}).join('')}</div>`).join('')}</div>`;
   }
   host.querySelectorAll('[data-event-id]').forEach(item=>{
-    const edit = event => { event.preventDefault(); event.stopPropagation(); const record=readSavedEvents().find(saved=>saved.id===item.dataset.eventId); if(record) openEventDialog(record); };
+    const edit = event => { event.preventDefault(); event.stopPropagation(); const record=savedEvents.find(saved=>saved.id===item.dataset.eventId); if(record) openEventDialog(record); };
     item.addEventListener('click',edit);
     item.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){edit(event);}});
   });
   host.querySelectorAll('.day:not(.empty)').forEach(cell=>cell.addEventListener('click',()=>{
     const [gy,gm,gd]=cell.dataset.date.split('-').map(Number); currentDate=new Date(Date.UTC(gy,gm-1,gd,12)); selectedView='day'; updateButtons(); render();
   }));
+  host.querySelectorAll('[data-create-event-date]').forEach(slot=>{
+    const create = event => {
+      if(event.target.closest('[data-event-id]')) return;
+      event.preventDefault();
+      const hour=slot.dataset.createEventHour;
+      const startTime=hour===undefined?null:`${String(Number(hour)).padStart(2,'0')}:00`;
+      openEventDialog(null,slot.dataset.createEventDate,startTime,slot.dataset.createAllDay==='true');
+    };
+    slot.addEventListener('click',create);
+    slot.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){create(event);}});
+  });
 }
 function updateButtons(){document.querySelectorAll('.view-btn').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===selectedView));}
+function refreshDateEquivalents() {
+  const today=calendarToday();
+  const element=document.getElementById('date-equivalents');
+  element.innerHTML=`<span>${solarFullFormatter.format(today)}</span></br><span>${gregorianFullFormatter.format(today)}</span></br><span>${hijriFullFormatter.format(today)}</span>`;
+}
 function shiftPeriod(amount){
   if(selectedView==='day') currentDate.setUTCDate(currentDate.getUTCDate()+amount);
   else if(selectedView==='week') currentDate.setUTCDate(currentDate.getUTCDate()+7*amount);
@@ -175,6 +195,24 @@ document.getElementById('next').addEventListener('click',()=>shiftPeriod(1));
 document.getElementById('today').addEventListener('click',()=>{currentDate=calendarToday();selectedYear=jalaliParts(currentDate).year;render();});
 document.getElementById('go-year').addEventListener('click',()=>{const value=Number(document.getElementById('year-input').value);if(Number.isInteger(value)&&value>0&&value<=275137){const p=jalaliParts(currentDate);const month=p.year===value?p.month:1;const first=monthStart(value,month);if(!first)return;selectedYear=value;currentDate=new Date(first.getTime()+12*3600000);render();}});
 document.getElementById('year-input').addEventListener('keydown',event=>{if(event.key==='Enter')document.getElementById('go-year').click();});
+const legendHelp=document.getElementById('legend-help');
+const legendInfo=document.getElementById('legend-info');
+legendInfo.addEventListener('click',()=>{
+  const isOpen=legendHelp.classList.toggle('is-open');
+  legendInfo.setAttribute('aria-expanded',String(isOpen));
+});
+document.addEventListener('click',event=>{
+  if(!legendHelp.contains(event.target)) {
+    legendHelp.classList.remove('is-open');
+    legendInfo.setAttribute('aria-expanded','false');
+  }
+});
+document.addEventListener('keydown',event=>{
+  if(event.key==='Escape') {
+    legendHelp.classList.remove('is-open');
+    legendInfo.setAttribute('aria-expanded','false');
+  }
+});
 
 function jalaliDateToIso(year, month, day) {
   if (!Number.isInteger(year)||year<1||year>275137||!Number.isInteger(month)||month<1||month>12||!Number.isInteger(day)||day<1) return null;
@@ -196,17 +234,22 @@ function updateAllDayFields() {
   const allDay=document.getElementById('event-all-day').checked;
   for(const field of [document.getElementById('event-start'),document.getElementById('event-end')]) { field.disabled=allDay; field.required=!allDay; }
 }
-function openEventDialog(event=null, date=isoDate(currentDate)) {
+function openEventDialog(event=null, date=isoDate(currentDate), startTime=null, allDay=false) {
   const form=document.getElementById('event-form');
   form.reset();
   editingEventId=event?.id||null;
   document.getElementById('event-dialog-title').textContent=event?'ویرایش رویداد':'رویداد جدید';
   document.getElementById('event-title').value=event?.title||'';
   populateEventDate(event?.date||date);
-  document.getElementById('event-all-day').checked=Boolean(event?.allDay);
-  document.getElementById('event-start').value=event?.startTime||'09:00';
-  document.getElementById('event-end').value=event?.endTime||'10:00';
+  document.getElementById('event-all-day').checked=event?Boolean(event.allDay):allDay;
+  const defaultStart=startTime||'09:00';
+  const [startHour,startMinute]=defaultStart.split(':').map(Number);
+  const defaultEnd=startHour===23?'23:59':`${String(startHour+1).padStart(2,'0')}:${String(startMinute).padStart(2,'0')}`;
+  document.getElementById('event-start').value=event?.startTime||defaultStart;
+  document.getElementById('event-end').value=event?.endTime||defaultEnd;
   document.getElementById('event-description').value=event?.description||'';
+  document.getElementById('event-reminder').value=String([0,5,10,30,60,1440].includes(Number(event?.reminderMinutes))?Number(event.reminderMinutes):0);
+  document.getElementById('event-email').value=event?.reminderEmail||'';
   document.getElementById('event-color').value=/^#[0-9a-f]{6}$/i.test(event?.color||'')?event.color:'#5668e8';
   document.getElementById('delete-event').hidden=!event;
   document.getElementById('event-error').hidden=true;
@@ -223,13 +266,64 @@ function showEventError(message) {
   error.textContent=message;
   error.hidden=false;
 }
+async function eventsRequest(method, payload) {
+  const response=await fetch('api/events.php',{
+    method,
+    headers:{'Accept':'application/json','Content-Type':'application/json'},
+    body:method==='GET'?undefined:JSON.stringify(payload)
+  });
+  const result=await response.json().catch(()=>({}));
+  if(!response.ok) throw new Error(result.error||'در ارتباط با فایل رویدادها خطایی رخ داد.');
+  return result;
+}
+async function loadEvents() {
+  try {
+    savedEvents=await eventsRequest('GET');
+    if(!Array.isArray(savedEvents)) throw new Error('ساختار فایل رویدادها معتبر نیست.');
+    const status=document.getElementById('calendar-status');
+    status.hidden=true;
+    render();
+    scheduleReminders();
+  } catch(error) {
+    const status=document.getElementById('calendar-status');
+    status.textContent=`رویدادها بارگذاری نشدند: ${error.message}`;
+    status.hidden=false;
+  }
+}
+function eventStartTimestamp(event) {
+  const date=new Date(`${event.date}T12:00:00Z`);
+  if(event.allDay) return Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate(),9);
+  const [hours,minutes]=(event.startTime||'09:00').split(':').map(Number);
+  return Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate(),hours,minutes);
+}
+function scheduleReminders() {
+  if(reminderTimer) clearTimeout(reminderTimer);
+  if(!('Notification' in window)||Notification.permission!=='granted') return;
+  const now=Date.now();
+  let nextDelay=Infinity;
+  for(const item of savedEvents) {
+    const start=eventStartTimestamp(item);
+    const fireAt=start-Number(item.reminderMinutes||0)*60000;
+    const key=`${item.id}:${start}:${item.reminderMinutes||0}`;
+    if(fireAt<=now&&!notifiedReminders.has(key)&&start>now) {
+      new Notification(item.title,{body:`${item.allDay?'تمام‌روز':item.startTime} · ${item.date}`,tag:key});
+      notifiedReminders.add(key);
+    } else if(fireAt>now&&!notifiedReminders.has(key)) nextDelay=Math.min(nextDelay,fireAt-now);
+  }
+  if(Number.isFinite(nextDelay)) reminderTimer=setTimeout(scheduleReminders,Math.min(nextDelay,2147483000));
+}
+async function enableNotifications() {
+  if(!('Notification' in window)) return;
+  if(Notification.permission==='default') await Notification.requestPermission();
+  scheduleReminders();
+}
 document.getElementById('create-event').addEventListener('click',()=>openEventDialog());
 document.getElementById('close-event-dialog').addEventListener('click',closeEventDialog);
 document.getElementById('cancel-event').addEventListener('click',closeEventDialog);
 document.getElementById('event-dialog').addEventListener('click',event=>{if(event.target.id==='event-dialog')closeEventDialog();});
 document.getElementById('event-all-day').addEventListener('change',updateAllDayFields);
 document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!document.getElementById('event-dialog').hidden)closeEventDialog();});
-document.getElementById('event-form').addEventListener('submit',event=>{
+document.getElementById('event-form').addEventListener('submit',async event=>{
   event.preventDefault();
   const title=document.getElementById('event-title').value.trim();
   const iso=jalaliDateToIso(Number(document.getElementById('event-year').value),Number(document.getElementById('event-month').value),Number(document.getElementById('event-day').value));
@@ -239,23 +333,32 @@ document.getElementById('event-form').addEventListener('submit',event=>{
   if(!title) return showEventError('عنوان رویداد را وارد کنید.');
   if(!iso) return showEventError('تاریخ شمسی واردشده معتبر نیست.');
   if(!allDay&&(!startTime||!endTime||endTime<=startTime)) return showEventError('ساعت پایان باید بعد از ساعت شروع باشد.');
-  const records=readSavedEvents();
-  const record={id:editingEventId||`${Date.now()}-${Math.random().toString(36).slice(2)}`,title,date:iso,allDay,startTime:allDay?'':startTime,endTime:allDay?'':endTime,description:document.getElementById('event-description').value.trim(),color:document.getElementById('event-color').value};
-  const index=records.findIndex(saved=>saved.id===editingEventId);
-  if(index>=0) records[index]=record; else records.push(record);
-  try { localStorage.setItem(eventStorageKey,JSON.stringify(records)); }
-  catch { return showEventError('ذخیره‌سازی در این مرورگر در دسترس نیست.'); }
+  const reminderMinutes=Number(document.getElementById('event-reminder').value);
+  const reminderEmail=document.getElementById('event-email').value.trim();
+  if(reminderEmail&& !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reminderEmail)) return showEventError('ایمیل یادآوری معتبر نیست.');
+  if(reminderEmail&&!window.confirm('ارسال ایمیل تا زمان تنظیم SMTP روی سرور فعال نیست. آدرس ایمیل در رویداد ذخیره شود؟')) return;
+  const record={id:editingEventId||`${Date.now()}-${Math.random().toString(36).slice(2)}`,title,date:iso,allDay,startTime:allDay?'':startTime,endTime:allDay?'':endTime,description:document.getElementById('event-description').value.trim(),color:document.getElementById('event-color').value,reminderMinutes,reminderEmail};
+  try {
+    const saved=await eventsRequest(editingEventId?'PUT':'POST',record);
+    const index=savedEvents.findIndex(item=>item.id===saved.id);
+    if(index>=0) savedEvents[index]=saved; else savedEvents.push(saved);
+  } catch(error) { return showEventError(error.message); }
   const [gy,gm,gd]=iso.split('-').map(Number);
   currentDate=new Date(Date.UTC(gy,gm-1,gd,12));
   selectedYear=jalaliParts(currentDate).year;
   render();
   closeEventDialog();
+  await enableNotifications();
+  scheduleReminders();
 });
-document.getElementById('delete-event').addEventListener('click',()=>{
+document.getElementById('delete-event').addEventListener('click',async()=>{
   if(!editingEventId||!window.confirm('این رویداد حذف شود؟')) return;
-  try { localStorage.setItem(eventStorageKey,JSON.stringify(readSavedEvents().filter(event=>event.id!==editingEventId))); }
-  catch { return showEventError('حذف رویداد در این مرورگر انجام نشد.'); }
+  try {
+    await eventsRequest('DELETE',{id:editingEventId});
+    savedEvents=savedEvents.filter(event=>event.id!==editingEventId);
+  } catch(error) { return showEventError(error.message); }
   closeEventDialog();
+  scheduleReminders();
   render();
 });
-updateButtons();render();
+updateButtons();render();loadEvents();

@@ -23,10 +23,17 @@
       </div>
     </header>
     <section class="calendar-heading">
-      <div><h2 id="period-title"></h2><p id="period-subtitle"></p></div>
+      <div class="calendar-heading-copy"><h2 id="period-title"></h2><p id="period-subtitle"></p><div class="date-equivalents" id="date-equivalents" aria-label="تاریخ امروز در سه گاه‌شماری"></div></div>
       <label class="year-picker">رفتن به سال <input id="year-input" type="number" min="1" max="275137" inputmode="numeric" aria-label="سال شمسی"><button id="go-year">برو</button></label>
     </section>
-    <div class="legend"><span><i class="legend-dot holiday-key"></i>تعطیل رسمی</span><span><i class="legend-dot friday-key"></i>تعطیلی هفتگی جمعه</span><span><i class="legend-dot event-key"></i>رویداد شما</span><span><i class="legend-dot today-key"></i>امروز</span></div>
+    <div class="legend-help" id="legend-help">
+      <button type="button" class="legend-info-button" id="legend-info" aria-label="راهنمای رنگ‌ها" aria-expanded="false" aria-controls="legend-popover">ⓘ</button>
+      <div class="legend-popover" id="legend-popover" role="dialog" aria-label="راهنمای رنگ‌های تقویم" hidden>
+        <strong>راهنمای رنگ‌ها</strong>
+        <span><i class="legend-dot holiday-key"></i>تعطیل رسمی</span><span><i class="legend-dot friday-key"></i>جمعه</span><span><i class="legend-dot event-key"></i>رویداد شما</span><span><i class="legend-dot today-key"></i>امروز</span>
+      </div>
+    </div>
+    <p class="calendar-status" id="calendar-status" role="status" hidden></p>
     <section id="calendar" aria-live="polite"></section>
     <div class="dialog-backdrop" id="event-dialog" hidden>
       <form class="event-form" id="event-form" role="dialog" aria-modal="true" aria-labelledby="event-dialog-title">
@@ -43,6 +50,12 @@
           <label class="form-field">پایان<input id="event-end" type="time" value="10:00" required></label>
         </div>
         <label class="form-field">توضیحات<textarea id="event-description" name="description" rows="3" maxlength="1000" placeholder="جزئیات رویداد"></textarea></label>
+        <label class="form-field">یادآوری
+          <select id="event-reminder" name="reminderMinutes">
+            <option value="0">همان لحظهٔ شروع</option><option value="5">۵ دقیقه قبل</option><option value="10">۱۰ دقیقه قبل</option><option value="30">۳۰ دقیقه قبل</option><option value="60">۱ ساعت قبل</option><option value="1440">۱ روز قبل</option>
+          </select>
+        </label>
+        <label class="form-field">ایمیل یادآوری (اختیاری)<input id="event-email" name="reminderEmail" type="email" autocomplete="email" placeholder="name@example.com"></label>
         <label class="form-field color-field">رنگ رویداد<input id="event-color" type="color" value="#5668e8"></label>
         <p class="form-error" id="event-error" role="alert" hidden></p>
         <div class="dialog-actions"><button type="button" class="delete-event-btn" id="delete-event" hidden>حذف رویداد</button><span></span><button type="button" class="cancel-btn" id="cancel-event">انصراف</button><button type="submit" class="save-event-btn">ذخیره</button></div>
