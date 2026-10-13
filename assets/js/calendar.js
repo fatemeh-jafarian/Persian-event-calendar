@@ -1,882 +1,166 @@
-let view = "day";
-let today = new Date();
-let events = [];
+'use strict';
 
-const HOUR_HEIGHT = 45;
-
-const weekDays = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"];
-
-const jalaliMonths = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور", "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
-
-const dayMap = {
-    "شنبه": 0,
-    "یکشنبه": 1,
-    "دوشنبه": 2,
-    "سه شنبه": 3,
-    "چهار شنبه": 4,
-    "پنج‌شنبه": 5,
-    "جمعه": 6
+const faNumber = new Intl.NumberFormat('fa-IR');
+const jalaliFormatter = new Intl.DateTimeFormat('en-u-ca-persian', {
+  year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC'
+});
+const hijriFormatter = new Intl.DateTimeFormat('en-u-ca-islamic', {
+  year: 'numeric', month: 'numeric', day: 'numeric', timeZone: 'UTC'
+});
+const monthNames = ['فروردین','اردیبهشت','خرداد','تیر','مرداد','شهریور','مهر','آبان','آذر','دی','بهمن','اسفند'];
+const weekdays = ['شنبه','یکشنبه','دوشنبه','سه‌شنبه','چهارشنبه','پنجشنبه','جمعه'];
+const solarHolidays = {
+  '1-1':'نوروز', '1-2':'نوروز', '1-3':'نوروز', '1-4':'نوروز',
+  '1-12':'روز جمهوری اسلامی ایران', '1-13':'روز طبیعت',
+  '3-14':'رحلت امام خمینی', '3-15':'قیام ۱۵ خرداد',
+  '11-22':'پیروزی انقلاب اسلامی', '12-29':'روز ملی شدن صنعت نفت'
 };
+// Tabular Hijri dates; actual Iranian lunar dates can differ by a day after moon-sighting announcements.
+const lunarHolidays = {
+  '1-9':'تاسوعای حسینی', '1-10':'عاشورای حسینی', '2-20':'اربعین حسینی',
+  '2-28':'رحلت پیامبر (ص) و شهادت امام حسن (ع)', '3-8':'شهادت امام حسن عسکری (ع)',
+  '3-17':'میلاد پیامبر (ص) و امام جعفر صادق (ع)', '6-3':'شهادت حضرت فاطمه (س)',
+  '7-13':'ولادت امام علی (ع) و روز پدر', '7-27':'مبعث پیامبر (ص)',
+  '8-15':'ولادت امام زمان (عج)', '9-21':'شهادت امام علی (ع)',
+  '10-1':'عید سعید فطر', '10-2':'تعطیل عید سعید فطر', '10-25':'شهادت امام جعفر صادق (ع)',
+  '12-10':'عید سعید قربان', '12-18':'عید سعید غدیر خم'
+};
+let currentDate = new Date();
+let selectedYear = Number(jalaliParts(currentDate).year);
+let selectedView = 'month';
+let holidaysForYear = new Map();
 
-function formatDateTime(date) {
-
-    const y = date.getFullYear();
-
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-
-    const d = String(date.getDate()).padStart(2, "0");
-
-    const h = String(date.getHours()).padStart(2, "0");
-
-    const i = String(date.getMinutes()).padStart(2, "0");
-
-    const s = String(date.getSeconds()).padStart(2, "0");
-
-    return `${y}-${m}-${d} ${h}:${i}:${s}`;
+function parts(formatter, date) {
+  const result = {};
+  for (const part of formatter.formatToParts(date)) if (part.type !== 'literal') result[part.type] = Number(part.value.replace(/[^0-9]/g, ''));
+  return result;
 }
-
-function getRangeStart() {
-
-    let start = new Date(today);
-
-    switch (view) {
-
-        case "day":
-
-            start.setHours(0, 0, 0, 0);
-            break;
-
-        case "week":
-
-            start.setDate(start.getDate() - ((start.getDay() + 1) % 7));
-            start.setHours(0, 0, 0, 0);
-            break;
-
-        case "month":
-
-            start = new persianDate(today)
-                .startOf("month")
-                .toDate();
-
-            start.setHours(0, 0, 0, 0);
-            break;
-
-        case "year":
-
-            let pStart = new persianDate(today);
-
-            start = new persianDate([pStart.year(), 1, 1]).toDate();
-
-            start.setHours(0, 0, 0, 0);
-            break;
-    }
-
-    return formatDateTime(start);
+function jalaliParts(date) { return parts(jalaliFormatter, date); }
+function monthStart(year, month) {
+  const start = new Date(Date.UTC(year + 621, 2, 1));
+  for (let i = 0; i < 390; i++) {
+    const date = new Date(start.getTime() + i * 86400000);
+    const p = jalaliParts(date);
+    if (p.year === year && p.month === month && p.day === 1) return date;
+  }
+  return null;
 }
-
-function getRangeEnd() {
-
-    let end = new Date(today);
-
-    switch (view) {
-
-        case "day":
-
-            end.setHours(23, 59, 59, 999);
-            break;
-
-        case "week":
-
-            end.setDate(end.getDate() + (6 - ((end.getDay() + 1) % 7)));
-            end.setHours(23, 59, 59, 999);
-            break;
-
-        case "month":
-
-            end = new persianDate(today)
-                .endOf("month")
-                .toDate();
-
-            end.setHours(23, 59, 59, 999);
-            break;
-
-        case "year":
-
-            let pEnd = new persianDate(today);
-
-            end = new persianDate([pEnd.year(), 12, 29])
-                .endOf("month")
-                .toDate();
-
-            end.setHours(23, 59, 59, 999);
-            break;
-    }
-
-    return formatDateTime(end);
+function monthDays(year, month) {
+  const first = monthStart(year, month);
+  const next = month === 12 ? monthStart(year + 1, 1) : monthStart(year, month + 1);
+  return first && next ? Math.round((next - first) / 86400000) : 0;
 }
-
-function goToday() {
-    today = new Date();
-    render();
+function iranWeekday(date) { return (date.getUTCDay() + 1) % 7; }
+function isoDate(date) { return `${date.getUTCFullYear()}-${String(date.getUTCMonth()+1).padStart(2,'0')}-${String(date.getUTCDate()).padStart(2,'0')}`; }
+function holidayMap(year) {
+  if (holidaysForYear.has(year)) return holidaysForYear.get(year);
+  const holidays = new Map();
+  const first = monthStart(year, 1);
+  const next = monthStart(year + 1, 1);
+  if (!first || !next) return holidays;
+  for (let date = new Date(first); date < next; date = new Date(date.getTime() + 86400000)) {
+    const jp = jalaliParts(date);
+    const fixed = solarHolidays[`${jp.month}-${jp.day}`];
+    if (fixed) holidays.set(isoDate(date), fixed);
+    const hp = parts(hijriFormatter, date);
+    const lunar = lunarHolidays[`${hp.month}-${hp.day}`];
+    if (lunar) holidays.set(isoDate(date), holidays.has(isoDate(date)) ? `${holidays.get(isoDate(date))}، ${lunar}` : lunar);
+  }
+  holidaysForYear.set(year, holidays);
+  return holidays;
 }
-
-function prev() {
-
-    switch (view) {
-
-        case "day":
-            today.setDate(today.getDate() - 1);
-            break;
-
-        case "week":
-            today.setDate(today.getDate() - 7);
-            break;
-
-        case "month":
-            today = new persianDate(today)
-                .subtract('months', 1)
-                .toDate();
-            break;
-
-        case "year":
-            today = new persianDate(today)
-                .subtract('years', 1)
-                .toDate();
-            break;
-    }
-
-    render();
+function seededEvents(year) {
+  const start = monthStart(year, 1);
+  const end = monthStart(year + 1, 1);
+  if (!start || !end) return new Map();
+  const titles = ['جلسه برنامه‌ریزی','پیگیری کارها','جلسه تیم','یادآوری پرداخت','مرور هفتگی','تحویل پروژه','جلسه با مشتری','برنامه‌ریزی ماهانه'];
+  const events = new Map();
+  let seed = (year * 9301 + 49297) % 233280;
+  const random = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  const span = Math.round((end - start) / 86400000);
+  for (let i = 0; i < Math.min(48, Math.floor(span / 7)); i++) {
+    const offset = Math.floor(random() * span);
+    const date = new Date(start.getTime() + offset * 86400000);
+    const key = isoDate(date);
+    if (!events.has(key)) events.set(key, []);
+    events.get(key).push({ title: titles[Math.floor(random() * titles.length)], color: ['#6574f7','#22a58b','#e7a844'][Math.floor(random()*3)], time: `${String(9+Math.floor(random()*9)).padStart(2,'0')}:${random() < .5 ? '00':'30'}` });
+  }
+  return events;
 }
-
-function next() {
-
-    switch (view) {
-
-        case "day":
-            today.setDate(today.getDate() + 1);
-            break;
-
-        case "week":
-            today.setDate(today.getDate() + 7);
-            break;
-
-        case "month":
-            today = new persianDate(today)
-                .add('months', 1)
-                .toDate();
-            break;
-
-        case "year":
-            today = new persianDate(today)
-                .add('years', 1)
-                .toDate();
-            break;
-    }
-
-    render();
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function labelDate(date) { return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year:'numeric',month:'long',day:'numeric',timeZone:'UTC' }).format(date); }
+function currentJalaliKey(date) { const p = jalaliParts(new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()))); return `${p.year}-${p.month}-${p.day}`; }
+function renderMonth(year, month, holidays, events, mini=false) {
+  const start = monthStart(year, month);
+  const count = monthDays(year, month);
+  if (!start || !count) return '<p class="empty-state">این سال در محدودهٔ قابل نمایش تاریخ قرار ندارد.</p>';
+  const leading = iranWeekday(start);
+  let html = `<section class="month-card ${mini?'mini-month':''}"><div class="month-card-title"><h3>${monthNames[month-1]}</h3>${mini?'':`<span>${faNumber.format(year)}</span>`}</div><div class="weekday-row">${weekdays.map(x=>`<span>${x}</span>`).join('')}</div><div class="days-grid">`;
+  for (let i=0;i<leading;i++) html += '<div class="day empty"></div>';
+  for (let day=1;day<=count;day++) {
+    const date = new Date(start.getTime() + (day-1)*86400000);
+    const iso = isoDate(date);
+    const holiday = holidays.get(iso);
+    const isFriday = date.getUTCDay() === 5;
+    const dayEvents = events.get(iso)||[];
+    const isToday = currentJalaliKey(currentDate) === `${year}-${month}-${day}`;
+    const classes = ['day', isToday?'is-today':'', holiday?'is-holiday':'', isFriday?'is-friday':''].filter(Boolean).join(' ');
+    html += `<button class="${classes}" data-date="${iso}" title="${escapeHtml([holiday,...dayEvents.map(e=>e.title)].filter(Boolean).join(' · ') || labelDate(date))}"><span class="day-number">${faNumber.format(day)}</span>${holiday?'<i class="holiday-dot"></i>':''}${dayEvents.length?`<i class="event-dot"></i>`:''}${!mini&&holiday?`<span class="day-holiday-label">${escapeHtml(holiday)}</span>`:''}${!mini&&dayEvents.map(e=>`<span class="event-pill" style="--event-color:${e.color}">${escapeHtml(e.time)} ${escapeHtml(e.title)}</span>`).join('')}</button>`;
+  }
+  return html+'</div></section>';
 }
-
-async function loadHolidays() {
-    holidays = await res.json();
+function visibleYearMonth() { const p=jalaliParts(currentDate); return {year:selectedYear,month:p.year===selectedYear?p.month:1}; }
+function render() {
+  const holidays = holidayMap(selectedYear);
+  const events = seededEvents(selectedYear);
+  const host=document.getElementById('calendar');
+  const title=document.getElementById('period-title');
+  const subtitle=document.getElementById('period-subtitle');
+  document.getElementById('year-input').value=selectedYear;
+  const selected=visibleYearMonth();
+  if (selectedView==='year') {
+    title.textContent=`تقویم سال ${faNumber.format(selectedYear)}`;
+    subtitle.textContent='همهٔ ماه‌ها در یک نگاه';
+    host.className='year-view';
+    host.innerHTML=Array.from({length:12},(_,i)=>renderMonth(selectedYear,i+1,holidays,events,true)).join('');
+    host.querySelectorAll('.mini-month .day:not(.empty)').forEach(cell=>cell.addEventListener('click',()=>{ const dp=cell.dataset.date.split('-').map(Number); currentDate=new Date(Date.UTC(dp[0],dp[1]-1,dp[2],12)); selectedView='month'; updateButtons(); render(); }));
+    return;
+  }
+  host.className='';
+  if (selectedView==='month') {
+    const p=jalaliParts(currentDate); const month=p.year===selectedYear?p.month:1;
+    title.textContent=`${monthNames[month-1]} ${faNumber.format(selectedYear)}`;
+    subtitle.textContent=`${faNumber.format(monthDays(selectedYear,month))} روز`;
+    host.innerHTML=renderMonth(selectedYear,month,holidays,events);
+  } else if (selectedView==='day') {
+    const p=jalaliParts(currentDate); const key=isoDate(new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate())));
+    title.textContent=labelDate(new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate()))); subtitle.textContent=weekdays[iranWeekday(new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate())))];
+    const dayDate=new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate()));
+    const officialHoliday=holidays.get(key);
+    const friday=dayDate.getUTCDay()===5;
+    host.innerHTML=`<div class="agenda">${officialHoliday?`<div class="agenda-holiday">تعطیل رسمی · ${escapeHtml(officialHoliday)}</div>`:''}${friday?'<div class="agenda-friday">تعطیلی هفتگی جمعه</div>':''}${(events.get(key)||[]).map(e=>`<div class="agenda-event" style="--event-color:${e.color}"><time>${e.time}</time><span>${escapeHtml(e.title)}</span></div>`).join('')||(!officialHoliday&&!friday?'<div class="empty-state">برای این روز رویدادی ثبت نشده است.</div>':'')}</div>`;
+  } else {
+    const p=jalaliParts(currentDate); const month=p.year===selectedYear?p.month:1; const start=new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate())); const shift=iranWeekday(start); const monday=new Date(start.getTime()-shift*86400000); const days=Array.from({length:7},(_,i)=>new Date(monday.getTime()+i*86400000));
+    title.textContent=`هفتهٔ ${monthNames[month-1]} ${faNumber.format(selectedYear)}`; subtitle.textContent='نمای هفتگی';
+    host.innerHTML=`<div class="week-view"><div class="weekday-row">${weekdays.map((w,i)=>`<span>${w}<b>${faNumber.format(jalaliParts(days[i]).day)}</b></span>`).join('')}</div>${Array.from({length:12},(_,h)=>`<div class="week-row"><time>${faNumber.format(h+8)}:۰۰</time>${days.map(d=>{const iso=isoDate(d);const officialHoliday=holidays.get(iso);const friday=d.getUTCDay()===5;return `<div class="week-slot">${(events.get(iso)||[]).filter(e=>Number(e.time.slice(0,2))===h+8).map(e=>`<span class="event-pill" style="--event-color:${e.color}">${escapeHtml(e.title)}</span>`).join('')}${officialHoliday?`<small class="week-holiday">${escapeHtml(officialHoliday)}</small>`:''}${friday?'<small class="week-friday">تعطیلی جمعه</small>':''}</div>`}).join('')}</div>`).join('')}</div>`;
+  }
+  host.querySelectorAll('.day:not(.empty)').forEach(cell=>cell.addEventListener('click',()=>{
+    const [gy,gm,gd]=cell.dataset.date.split('-').map(Number); currentDate=new Date(gy,gm-1,gd,12); selectedView='day'; updateButtons(); render();
+  }));
 }
-
-
-function getIranHoliday(date) {
-
-    let p = new persianDate(date);
-
-    let m = String(p.month()).padStart(2, "0");
-    let d = String(p.date()).padStart(2, "0");
-
-    const holidays = {
-        "01-01": "نوروز",
-        "01-02": "نوروز",
-        "01-03": "نوروز",
-        "01-04": "نوروز",
-        "01-12": "روز جمهوری اسلامی",
-        "01-13": "جشن سیزده‌بدر",
-        "03-14": "رحلت امام",
-        "03-15": "قیام 15 خرداد",
-        "11-22": "22 بهمن"
-    };
-
-    return holidays[`${m}-${d}`] || null;
+function updateButtons(){document.querySelectorAll('.view-btn').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===selectedView));}
+function shiftPeriod(amount){
+  if(selectedView==='day') currentDate.setDate(currentDate.getDate()+amount);
+  else if(selectedView==='week') currentDate.setDate(currentDate.getDate()+7*amount);
+  else if(selectedView==='year') selectedYear=Math.max(1,Math.min(275137,selectedYear+amount));
+  else { const p=jalaliParts(currentDate); const targetMonth=p.year===selectedYear?p.month:1; let y=selectedYear,m=targetMonth+amount; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} if(y<1||y>275137)return; const start=monthStart(y,m); if(!start)return; selectedYear=y; currentDate=new Date(start.getTime()+12*3600000); }
+  if (selectedView !== 'year') selectedYear = jalaliParts(currentDate).year;
+  render();
 }
-
-function isToday(date) {
-    let now = new Date();
-    return (
-        date.getFullYear() === now.getFullYear() &&
-        date.getMonth() === now.getMonth() &&
-        date.getDate() === now.getDate()
-    );
-}
-
-
-function getFirstDayOfJalaliMonth(date) {
-
-    let pd = new persianDate(date);
-
-    let first = pd.startOf('month');
-
-    return first.day();
-}
-
-function getJalaliMonthDays(date) {
-
-    let pd = new persianDate(date);
-
-    return pd.daysInMonth();
-}
-
-function toJalali(date) {
-    return new Intl.DateTimeFormat('fa-IR-u-ca-persian', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    }).format(date);
-}
-
-function getJalaliMonth(date) {
-    return new Intl.DateTimeFormat('fa-IR-u-ca-persian', {
-        month: 'long'
-    }).format(date);
-}
-
-function sameDay(a, b) {
-
-    return (
-        a.getFullYear() === b.getFullYear() &&
-        a.getMonth() === b.getMonth() &&
-        a.getDate() === b.getDate()
-    );
-
-}
-
-function renderDayEvents(cell, date) {
-
-    let dayEvents = events.filter(ev =>
-        sameDay(ev.start, date)
-    );
-
-    dayEvents.forEach(ev => {
-
-        let div = document.createElement("div");
-
-        div.className = "event";
-        div.innerText = ev.title;
-        div.style.background = ev.color;
-
-        cell.appendChild(div);
-    });
-}
-
-function renderDayEventsLayer(layer) {
-
-    const HOUR_HEIGHT = 45;
-
-    let dayEvents = events.filter(ev =>
-        sameDay(ev.start, today)
-    );
-
-    dayEvents.forEach(ev => {
-
-        let div = document.createElement("div");
-
-        let startMinutes =
-            ev.start.getHours() * 60 +
-            ev.start.getMinutes();
-
-        let endMinutes =
-            ev.end.getHours() * 60 +
-            ev.end.getMinutes();
-
-        div.className = "event";
-
-        div.style.pointerEvents = "auto";
-        div.style.cursor = "pointer";
-
-        div.innerText = ev.title;
-
-        const startTime =
-            `${String(ev.start.getHours()).padStart(2, '0')}:${String(ev.start.getMinutes()).padStart(2, '0')}`;
-
-        const endTime =
-            `${String(ev.end.getHours()).padStart(2, '0')}:${String(ev.end.getMinutes()).padStart(2, '0')}`;
-
-        div.setAttribute("data-toggle", "tooltip");
-        div.setAttribute("data-placement", "top");
-        div.setAttribute("data-html", "true");
-
-        div.setAttribute(
-            "title",
-            `<b>${ev.title}</b><br>${startTime} - ${endTime}`
-        );
-
-        div.style.position = "absolute";
-
-        div.style.left = "0";
-        div.style.right = "5px";
-
-        div.style.top =
-            `${startMinutes * HOUR_HEIGHT / 60 - 2}px`;
-
-        div.style.height =
-            `${(endMinutes - startMinutes) * HOUR_HEIGHT / 60}px`;
-
-        div.style.background = ev.color;
-
-        div.style.color = "#fff";
-
-        div.style.padding = "4px";
-
-        div.style.borderRadius = "6px";
-
-        layer.appendChild(div);
-
-    });
-}
-function renderWeekEvents(cell, date, hour) {
-
-    let hourEvents = events.filter(ev => {
-
-        return sameDay(ev.start, date) &&
-            ev.start.getHours() === hour;
-
-    });
-
-    hourEvents.forEach(ev => {
-
-        let div = document.createElement("div");
-
-        div.className = "event";
-
-        div.style.zIndex = "1000";
-        div.style.pointerEvents = "auto";
-
-        div.style.position = "absolute";
-
-        div.style.left = "1px";
-        div.style.right = "1px";
-
-        div.style.top = `${ev.start.getMinutes() * HOUR_HEIGHT / 60 - 3}px`;
-
-        const duration =
-            (ev.end.getTime() - ev.start.getTime()) / 60000;
-
-        div.style.height =
-            `${duration * HOUR_HEIGHT / 60}px`;
-
-        div.style.background = ev.color;
-
-        div.style.color = "#fff";
-
-        div.style.fontSize = "11px";
-
-        div.style.padding = "2px 4px";
-
-        div.style.borderRadius = "4px";
-
-        div.style.boxSizing = "border-box";
-
-        div.style.overflow = "hidden";
-
-        div.innerHTML = `<b>${ev.title}</b>`;
-
-        div.setAttribute("data-toggle", "tooltip");
-        div.setAttribute("data-placement", "top");
-
-        div.setAttribute(
-            "title",
-            `<b>${ev.title}</b><br>
-     ${String(ev.start.getHours()).padStart(2, '0')}:${String(ev.start.getMinutes()).padStart(2, '0')}
-     -
-     ${String(ev.end.getHours()).padStart(2, '0')}:${String(ev.end.getMinutes()).padStart(2, '0')}`
-        );
-
-        div.setAttribute("data-html", "true");
-
-        cell.appendChild(div);
-
-    });
-
-}
-
-function randomColor() {
-
-    const colors = [
-        "#1a73e8", // Google blue
-        "#ea4335", // red
-        "#34a853", // green
-        "#fbbc05", // yellow
-        "#673ab7", // purple
-        "#00acc1"
-    ];
-
-    return colors[Math.floor(Math.random() * colors.length)];
-}
-
-setView('week');
-
-function setView(v) {
-    view = v;
-
-    $(".view-btn").removeClass("active");
-    $("#" + view + "-btn").addClass('active');
-    render();
-}
-
-
-function isHoliday(date) {
-
-    if (date.getDay() === 5) return true;
-
-    let iso = date.toISOString().split("T")[0];
-
-    return holidays.some(h => h.date === iso);
-}
-
-function getHolidayTitle(date) {
-
-    let iso = date.toISOString().split("T")[0];
-
-    let h = holidays.find(h => h.date === iso);
-
-    return h ? h.title : null;
-}
-
-async function render() {
-
-    const start = getRangeStart();
-
-    const end = getRangeEnd();
-
-    await loadEvents(start, end);
-
-    let el = document.getElementById("calendar");
-
-    el.innerHTML = "";
-
-    if (view === "day") renderDay(el);
-
-    if (view === "week") renderWeek(el);
-
-    if (view === "month") renderMonth(el);
-
-    if (view === "year") renderYear(el);
-}
-
-function renderDay(el) {
-
-    el.innerHTML = "";
-
-    let holiday = getIranHoliday(today);
-    let todayFlag = isToday(today);
-
-    let header = document.createElement("div");
-    header.style.padding = "10px";
-
-    header.innerHTML = `
-        ${todayFlag ? "⭐ امروز - " : ""}
-        ${new persianDate(today).format("dddd D MMMM")}
-        ${holiday ? " | " + holiday : ""}
-    `;
-
-    el.appendChild(header);
-
-    let grid = document.createElement("div");
-    grid.style.display = "grid";
-    grid.style.gridTemplateRows = `repeat(24,${HOUR_HEIGHT}px)`;
-    grid.style.position = "relative";
-
-    for (let h = 0; h < 24; h++) {
-
-        let cell = document.createElement("div");
-        cell.className = "cell";
-        cell.style.position = "relative";
-        cell.style.height = `${HOUR_HEIGHT}px`;
-        cell.style.overflow = "visible";
-
-        let d = new Date(today);
-        d.setHours(h);
-
-        cell.dataset.date = d.toISOString();
-
-        cell.innerHTML = `
-            <div style="
-                position:absolute;
-                left:2px;
-                top:30%;
-                width:50px;
-                color:#666;
-                font-size:12px;
-            ">
-                ${h}:00
-            </div>
-        `;
-
-        let eventsLayer = document.createElement("div");
-
-        eventsLayer.style.position = "absolute";
-        eventsLayer.style.left = "60px";
-        eventsLayer.style.top = "0";
-        eventsLayer.style.right = "0";
-        eventsLayer.style.height = `${24 * HOUR_HEIGHT}px`;
-        eventsLayer.style.pointerEvents = "auto";
-
-        renderDayEventsLayer(eventsLayer);
-
-        grid.appendChild(eventsLayer);
-
-        grid.appendChild(cell);
-    }
-
-    el.appendChild(grid);
-    $('[data-toggle="tooltip"]').tooltip();
-}
-
-function renderWeek(el) {
-
-    el.innerHTML = "";
-
-    let start = new Date(today);
-    start.setDate(start.getDate() - ((start.getDay() + 1) % 7));
-
-    const HEADER_HEIGHT = 70;
-
-    let grid = document.createElement("div");
-
-    grid.style.display = "grid";
-    grid.style.gridTemplateColumns = `60px repeat(7,1fr)`;
-    grid.style.gridTemplateRows = `${HEADER_HEIGHT}px repeat(24,${HOUR_HEIGHT}px)`;
-    grid.style.position = "relative";
-    grid.style.border = "1px solid #e0e0e0";
-
-    let empty = document.createElement("div");
-    empty.className = "cell";
-    grid.appendChild(empty);
-
-    for (let i = 0; i < 7; i++) {
-
-        let d = new Date(start);
-        d.setDate(start.getDate() + i);
-
-        let header = document.createElement("div");
-
-        header.className = "cell";
-
-        if (d.getDay() === 5) {
-            header.classList.add("holiday");
-        }
-
-        if (isToday(d))
-            header.classList.add("today");
-
-        header.innerHTML = `
-            <div style="text-align:center">
-                <div style="font-size:12px">
-                    ${new persianDate(d).format("dddd")}
-                </div>
-
-                <div style="font-size:18px;margin-top:3px">
-                    ${new persianDate(d).date()}
-                </div>
-            </div>
-        `;
-
-        grid.appendChild(header);
-
-    }
-
-    for (let h = 0; h < 24; h++) {
-
-        let hour = document.createElement("div");
-
-        hour.className = "cell";
-
-        hour.style.height = `${HOUR_HEIGHT}px`;
-
-        hour.style.display = "flex";
-        hour.style.alignItems = "center";
-        hour.style.justifyContent = "center";
-
-        hour.style.fontSize = "12px";
-        hour.style.color = "#666";
-
-        hour.innerHTML = `${String(h).padStart(2, '0')}:00`;
-
-        grid.appendChild(hour);
-
-        for (let day = 0; day < 7; day++) {
-
-            let cell = document.createElement("div");
-
-            cell.className = "cell";
-
-            let currentDate = new Date(start);
-            currentDate.setDate(start.getDate() + day);
-
-            if (currentDate.getDay() === 5) {
-                cell.classList.add("holiday");
-            }
-
-            cell.style.height = `${HOUR_HEIGHT}px`;
-
-            cell.style.position = "relative";
-
-            cell.style.overflow = "visible";
-
-            let date = new Date(start);
-
-            date.setDate(start.getDate() + day);
-
-            date.setHours(h, 0, 0, 0);
-
-            cell.dataset.date = date.toISOString();
-
-            renderWeekEvents(cell, date, h);
-
-            grid.appendChild(cell);
-
-        }
-
-    }
-
-    el.appendChild(grid);
-    $('[data-toggle="tooltip"]').tooltip();
-}
-
-function renderMonth(el) {
-
-    let p = new persianDate(today);
-
-    let year = p.year();
-    let month = p.month();
-
-    let monthStart = new persianDate([year, month, 1]);
-    let daysInMonth = monthStart.daysInMonth();
-
-    let firstDay = dayMap[
-        new persianDate([year, month, 1]).format("dddd")
-    ];
-
-    const weekDaysFa = ["شنبه", "یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه"];
-
-    let grid = document.createElement("div");
-    grid.className = "grid";
-    grid.style.display = "grid";
-    grid.style.gridTemplateColumns = "repeat(7, 1fr)";
-    grid.style.gap = "1px";
-    grid.style.background = "#e0e0e0";
-
-    let header = document.createElement("div");
-    header.style.gridColumn = "span 7";
-    header.style.padding = "10px";
-    header.style.fontWeight = "bold";
-    header.style.background = "#fff";
-    header.style.borderBottom = "1px solid #e0e0e0";
-
-    header.innerText = `${monthStart.format("MMMM")} ${year}`;
-    grid.appendChild(header);
-
-    for (let i = 0; i < 7; i++) {
-        let wd = document.createElement("div");
-        wd.style.background = "#fff";
-        wd.style.textAlign = "center";
-        wd.style.fontSize = "12px";
-        wd.style.color = "#5f6368";
-        wd.style.padding = "6px";
-        wd.innerText = weekDaysFa[i];
-        grid.appendChild(wd);
-    }
-
-    for (let i = 0; i < firstDay; i++) {
-        let empty = document.createElement("div");
-        empty.style.background = "#fff";
-        empty.style.minHeight = "90px";
-        grid.appendChild(empty);
-    }
-
-    for (let d = 1; d <= daysInMonth; d++) {
-
-        let pDate = new persianDate([year, month, d]);
-        let dateObj = pDate.toDate();
-        let dayName = pDate.format("dddd");
-        let dayIndex = dayMap[dayName];
-        let holiday = getIranHoliday(dateObj);
-
-        let isTodayCell = isToday(dateObj);
-
-        let cell = document.createElement("div");
-        cell.className = "cell";
-
-        cell.style.background = "#fff";
-        cell.style.minHeight = "90px";
-        cell.style.padding = "6px";
-        cell.style.cursor = "pointer";
-        cell.style.position = "relative";
-
-        if (isTodayCell) {
-            cell.classList.add("today");
-        }
-
-        cell.innerHTML = `
-            <div style="
-                display:flex;
-                justify-content:space-between;
-                align-items:center;
-                font-size:13px;
-                font-weight:500;
-            ">
-                <span class="${isTodayCell ? 'today-badge' : ''}">
-                    ${d}
-                </span>
-            </div>
-        `;
-
-        if (holiday || dayIndex === 6) {
-            let dot = document.createElement("div");
-            dot.className = "holiday-dot";
-            cell.appendChild(dot);
-
-            let label = document.createElement("div");
-            label.style.fontSize = "10px";
-            label.style.color = "#d93025";
-            label.innerText = holiday;
-            cell.appendChild(label);
-
-            cell.classList.add("holiday");
-        }
-
-        cell.dataset.date = dateObj.toISOString();
-
-        renderDayEvents(cell, dateObj);
-
-        cell.onclick = () => {
-            today = dateObj;
-            setView("day");
-        };
-
-        grid.appendChild(cell);
-    }
-
-    el.appendChild(grid);
-}
-
-
-function renderYear(el) {
-
-    let p = new persianDate(today);
-    let year = p.year();
-
-    let wrapper = document.createElement("div");
-
-    let header = document.createElement("div");
-    header.style.padding = "10px";
-    header.style.fontWeight = "bold";
-    header.style.fontSize = "18px";
-    header.innerText = `سال ${year}`;
-
-    wrapper.appendChild(header);
-
-    let grid = document.createElement("div");
-    grid.style.display = "grid";
-    grid.style.gridTemplateColumns = "repeat(3,1fr)";
-    grid.style.gap = "10px";
-
-
-    header.innerText = `سال ${year}`;
-
-    for (let m = 1; m <= 12; m++) {
-
-        let monthStart = new persianDate([year, m, 1]);
-        let daysInMonth = monthStart.daysInMonth();
-        let startWeekDay = dayMap[
-            monthStart.format("dddd")
-        ];
-
-        let cell = document.createElement("div");
-        cell.className = "cell";
-
-        cell.style.padding = "10px";
-        cell.style.border = "1px solid #eee";
-        cell.style.minHeight = "120px";
-        cell.style.cursor = "pointer";
-
-        let html = `
-            <div style="font-weight:bold;margin-bottom:6px">
-                ${monthStart.format("MMMM")}
-            </div>
-
-            <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:10px;color:#555">
-        `;
-
-        const weekShort = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
-
-        for (let i = 0; i < 7; i++) {
-            html += `<div style="text-align:center;color:#999">${weekShort[i]}</div>`;
-        }
-
-        for (let i = 0; i < startWeekDay; i++) {
-            html += `<div></div>`;
-        }
-
-        for (let d = 1; d <= daysInMonth; d++) {
-
-            let date = new persianDate([year, m, d]);
-            let now = new persianDate();
-            let isTodayCell =
-                date.year() === now.year() &&
-                date.month() === now.month() &&
-                date.date() === now.date();
-
-            html += `
-                <div style="
-                    text-align:center;
-                    padding:2px;
-                    border-radius:3px;
-                    ${isTodayCell ? 'background:#1a73e8;color:white' : ''}
-                ">
-                    ${d}
-                </div>
-            `;
-        }
-
-        html += `</div>`;
-
-        cell.innerHTML = html;
-
-        cell.onclick = () => {
-            today = monthStart.toDate();
-            setView("month");
-        };
-
-        grid.appendChild(cell);
-    }
-
-    wrapper.appendChild(grid);
-    el.appendChild(wrapper);
-}
-
-
-async function loadEvents(start, end) {
-    const endpoint = new URL('index.php', window.location.href);
-    endpoint.searchParams.set('start', start);
-    endpoint.searchParams.set('end', end);
-    const res = await fetch(endpoint);
-
-    if (!res.ok) {
-        throw new Error(`بارگذاری رویدادها ناموفق بود (${res.status})`);
-    }
-
-    const data = await res.json();
-
-    events = data.map(item => ({
-        id: item.id,
-        title: item.title,
-        start: new Date(item.start.replace(" ", "T")),
-        end: new Date(item.end.replace(" ", "T")),
-        color: item.color
-    }));
-}
-
+document.querySelectorAll('.view-btn').forEach(btn=>btn.addEventListener('click',()=>{const cameFromYear=selectedView==='year';selectedView=btn.dataset.view;if(cameFromYear&&selectedView!=='year'){const first=monthStart(selectedYear,1);if(first)currentDate=new Date(first.getTime()+12*3600000);}else{selectedYear=jalaliParts(currentDate).year;}updateButtons();render();}));
+document.getElementById('prev').addEventListener('click',()=>shiftPeriod(-1));
+document.getElementById('next').addEventListener('click',()=>shiftPeriod(1));
+document.getElementById('today').addEventListener('click',()=>{currentDate=new Date();selectedYear=jalaliParts(currentDate).year;render();});
+document.getElementById('go-year').addEventListener('click',()=>{const value=Number(document.getElementById('year-input').value);if(Number.isInteger(value)&&value>0&&value<=275137){const p=jalaliParts(currentDate);const month=p.year===value?p.month:1;const first=monthStart(value,month);if(!first)return;selectedYear=value;currentDate=new Date(first.getTime()+12*3600000);render();}});
+document.getElementById('year-input').addEventListener('keydown',event=>{if(event.key==='Enter')document.getElementById('go-year').click();});
+updateButtons();render();
