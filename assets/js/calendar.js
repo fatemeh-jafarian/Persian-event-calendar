@@ -25,7 +25,11 @@ const lunarHolidays = {
   '10-1':'عید سعید فطر', '10-2':'تعطیل عید سعید فطر', '10-25':'شهادت امام جعفر صادق (ع)',
   '12-10':'عید سعید قربان', '12-18':'عید سعید غدیر خم'
 };
-let currentDate = new Date();
+function calendarToday() {
+  const now = new Date();
+  return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 12));
+}
+let currentDate = calendarToday();
 let selectedYear = Number(jalaliParts(currentDate).year);
 let selectedView = 'month';
 let holidaysForYear = new Map();
@@ -89,7 +93,7 @@ function seededEvents(year) {
 }
 function escapeHtml(value) { return String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function labelDate(date) { return new Intl.DateTimeFormat('fa-IR-u-ca-persian', { year:'numeric',month:'long',day:'numeric',timeZone:'UTC' }).format(date); }
-function currentJalaliKey(date) { const p = jalaliParts(new Date(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate()))); return `${p.year}-${p.month}-${p.day}`; }
+function currentJalaliKey(date) { const p = jalaliParts(date); return `${p.year}-${p.month}-${p.day}`; }
 function renderMonth(year, month, holidays, events, mini=false) {
   const start = monthStart(year, month);
   const count = monthDays(year, month);
@@ -109,7 +113,6 @@ function renderMonth(year, month, holidays, events, mini=false) {
   }
   return html+'</div></section>';
 }
-function visibleYearMonth() { const p=jalaliParts(currentDate); return {year:selectedYear,month:p.year===selectedYear?p.month:1}; }
 function render() {
   const holidays = holidayMap(selectedYear);
   const events = seededEvents(selectedYear);
@@ -117,7 +120,6 @@ function render() {
   const title=document.getElementById('period-title');
   const subtitle=document.getElementById('period-subtitle');
   document.getElementById('year-input').value=selectedYear;
-  const selected=visibleYearMonth();
   if (selectedView==='year') {
     title.textContent=`تقویم سال ${faNumber.format(selectedYear)}`;
     subtitle.textContent='همهٔ ماه‌ها در یک نگاه';
@@ -133,25 +135,25 @@ function render() {
     subtitle.textContent=`${faNumber.format(monthDays(selectedYear,month))} روز`;
     host.innerHTML=renderMonth(selectedYear,month,holidays,events);
   } else if (selectedView==='day') {
-    const p=jalaliParts(currentDate); const key=isoDate(new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate())));
-    title.textContent=labelDate(new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate()))); subtitle.textContent=weekdays[iranWeekday(new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate())))];
-    const dayDate=new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate()));
+    const dayDate=new Date(Date.UTC(currentDate.getUTCFullYear(),currentDate.getUTCMonth(),currentDate.getUTCDate()));
+    const key=isoDate(dayDate);
+    title.textContent=labelDate(dayDate); subtitle.textContent=weekdays[iranWeekday(dayDate)];
     const officialHoliday=holidays.get(key);
     const friday=dayDate.getUTCDay()===5;
     host.innerHTML=`<div class="agenda">${officialHoliday?`<div class="agenda-holiday">تعطیل رسمی · ${escapeHtml(officialHoliday)}</div>`:''}${friday?'<div class="agenda-friday">تعطیلی هفتگی جمعه</div>':''}${(events.get(key)||[]).map(e=>`<div class="agenda-event" style="--event-color:${e.color}"><time>${e.time}</time><span>${escapeHtml(e.title)}</span></div>`).join('')||(!officialHoliday&&!friday?'<div class="empty-state">برای این روز رویدادی ثبت نشده است.</div>':'')}</div>`;
   } else {
-    const p=jalaliParts(currentDate); const month=p.year===selectedYear?p.month:1; const start=new Date(Date.UTC(currentDate.getFullYear(),currentDate.getMonth(),currentDate.getDate())); const shift=iranWeekday(start); const monday=new Date(start.getTime()-shift*86400000); const days=Array.from({length:7},(_,i)=>new Date(monday.getTime()+i*86400000));
+    const p=jalaliParts(currentDate); const month=p.year===selectedYear?p.month:1; const start=new Date(Date.UTC(currentDate.getUTCFullYear(),currentDate.getUTCMonth(),currentDate.getUTCDate())); const shift=iranWeekday(start); const weekStart=new Date(start.getTime()-shift*86400000); const days=Array.from({length:7},(_,i)=>new Date(weekStart.getTime()+i*86400000));
     title.textContent=`هفتهٔ ${monthNames[month-1]} ${faNumber.format(selectedYear)}`; subtitle.textContent='نمای هفتگی';
     host.innerHTML=`<div class="week-view"><div class="weekday-row">${weekdays.map((w,i)=>`<span>${w}<b>${faNumber.format(jalaliParts(days[i]).day)}</b></span>`).join('')}</div>${Array.from({length:12},(_,h)=>`<div class="week-row"><time>${faNumber.format(h+8)}:۰۰</time>${days.map(d=>{const iso=isoDate(d);const officialHoliday=holidays.get(iso);const friday=d.getUTCDay()===5;return `<div class="week-slot">${(events.get(iso)||[]).filter(e=>Number(e.time.slice(0,2))===h+8).map(e=>`<span class="event-pill" style="--event-color:${e.color}">${escapeHtml(e.title)}</span>`).join('')}${officialHoliday?`<small class="week-holiday">${escapeHtml(officialHoliday)}</small>`:''}${friday?'<small class="week-friday">تعطیلی جمعه</small>':''}</div>`}).join('')}</div>`).join('')}</div>`;
   }
   host.querySelectorAll('.day:not(.empty)').forEach(cell=>cell.addEventListener('click',()=>{
-    const [gy,gm,gd]=cell.dataset.date.split('-').map(Number); currentDate=new Date(gy,gm-1,gd,12); selectedView='day'; updateButtons(); render();
+    const [gy,gm,gd]=cell.dataset.date.split('-').map(Number); currentDate=new Date(Date.UTC(gy,gm-1,gd,12)); selectedView='day'; updateButtons(); render();
   }));
 }
 function updateButtons(){document.querySelectorAll('.view-btn').forEach(btn=>btn.classList.toggle('active',btn.dataset.view===selectedView));}
 function shiftPeriod(amount){
-  if(selectedView==='day') currentDate.setDate(currentDate.getDate()+amount);
-  else if(selectedView==='week') currentDate.setDate(currentDate.getDate()+7*amount);
+  if(selectedView==='day') currentDate.setUTCDate(currentDate.getUTCDate()+amount);
+  else if(selectedView==='week') currentDate.setUTCDate(currentDate.getUTCDate()+7*amount);
   else if(selectedView==='year') selectedYear=Math.max(1,Math.min(275137,selectedYear+amount));
   else { const p=jalaliParts(currentDate); const targetMonth=p.year===selectedYear?p.month:1; let y=selectedYear,m=targetMonth+amount; while(m<1){m+=12;y--;} while(m>12){m-=12;y++;} if(y<1||y>275137)return; const start=monthStart(y,m); if(!start)return; selectedYear=y; currentDate=new Date(start.getTime()+12*3600000); }
   if (selectedView !== 'year') selectedYear = jalaliParts(currentDate).year;
@@ -160,7 +162,7 @@ function shiftPeriod(amount){
 document.querySelectorAll('.view-btn').forEach(btn=>btn.addEventListener('click',()=>{const cameFromYear=selectedView==='year';selectedView=btn.dataset.view;if(cameFromYear&&selectedView!=='year'){const first=monthStart(selectedYear,1);if(first)currentDate=new Date(first.getTime()+12*3600000);}else{selectedYear=jalaliParts(currentDate).year;}updateButtons();render();}));
 document.getElementById('prev').addEventListener('click',()=>shiftPeriod(-1));
 document.getElementById('next').addEventListener('click',()=>shiftPeriod(1));
-document.getElementById('today').addEventListener('click',()=>{currentDate=new Date();selectedYear=jalaliParts(currentDate).year;render();});
+document.getElementById('today').addEventListener('click',()=>{currentDate=calendarToday();selectedYear=jalaliParts(currentDate).year;render();});
 document.getElementById('go-year').addEventListener('click',()=>{const value=Number(document.getElementById('year-input').value);if(Number.isInteger(value)&&value>0&&value<=275137){const p=jalaliParts(currentDate);const month=p.year===value?p.month:1;const first=monthStart(value,month);if(!first)return;selectedYear=value;currentDate=new Date(first.getTime()+12*3600000);render();}});
 document.getElementById('year-input').addEventListener('keydown',event=>{if(event.key==='Enter')document.getElementById('go-year').click();});
 updateButtons();render();
